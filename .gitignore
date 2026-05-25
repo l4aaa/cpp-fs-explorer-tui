@@ -1,0 +1,9 @@
+# Build artifacts
+fs_explorer
+*.o
+
+# OS and IDE files
+.DS_Store
+.antigravitycli/
+.vscode/
+.idea/
