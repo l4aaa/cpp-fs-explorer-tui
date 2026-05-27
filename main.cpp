@@ -10,21 +10,15 @@
 #include <cstdlib>
 #include "FileSystem.h"
 
-// ============================================================================
-// ANSI Color Definitions (Optimized for Dark Themes)
-// ============================================================================
 const std::string COLOR_RESET     = "\033[0m";
-const std::string COLOR_BORDER    = "\033[38;5;244m"; // Medium gray for borders/tree prefixes
-const std::string COLOR_DIR       = "\033[1;36m";     // Bold Cyan for directories (highly readable)
-const std::string COLOR_FILE      = "\033[1;32m";     // Bold Green for files
-const std::string COLOR_SEL_DIR   = "\033[30;46m";    // Black text on Cyan background for selected dir
-const std::string COLOR_SEL_FILE  = "\033[30;42m";    // Black text on Green background for selected file
-const std::string COLOR_HEADER    = "\033[1;30;46m";  // Bold Black text on Cyan background for headers
-const std::string COLOR_LEGEND    = "\033[1;30;43m";  // Bold Black text on Yellow background for legend
+const std::string COLOR_BORDER    = "\033[38;5;244m";
+const std::string COLOR_DIR       = "\033[1;36m";
+const std::string COLOR_FILE      = "\033[1;32m";
+const std::string COLOR_SEL_DIR   = "\033[30;46m";
+const std::string COLOR_SEL_FILE  = "\033[30;42m";
+const std::string COLOR_HEADER    = "\033[1;30;46m";
+const std::string COLOR_LEGEND    = "\033[1;30;43m";
 
-// ============================================================================
-// Key Definitions & Codes
-// ============================================================================
 enum Key {
     KEY_UP = 1000,
     KEY_DOWN,
@@ -36,9 +30,6 @@ enum Key {
     KEY_TAB = 9
 };
 
-// ============================================================================
-// Terminal Manager & Raw Mode Control
-// ============================================================================
 class TerminalRawMode {
 public:
     struct termios orig_termios;
@@ -56,8 +47,6 @@ public:
         if (active) return;
         if (tcgetattr(STDIN_FILENO, &orig_termios) == 0) {
             struct termios raw = orig_termios;
-            // Clear echo and canonical (line-buffered) mode.
-            // Keep signals enabled so Ctrl+C / SIGINT works.
             raw.c_lflag &= ~(ECHO | ICANON);
             raw.c_cc[VMIN] = 1;
             raw.c_cc[VTIME] = 0;
@@ -70,12 +59,11 @@ public:
         if (active) {
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
             active = false;
-            std::cout << "\033[?25h" << std::flush; // Ensure cursor is visible on exit
+            std::cout << "\033[?25h" << std::flush;
         }
     }
 };
 
-// Global pointer to restore raw mode in signal handlers
 TerminalRawMode* globalRawMode = nullptr;
 
 void handleSignal(int sig) {
@@ -86,16 +74,13 @@ void handleSignal(int sig) {
     std::exit(sig);
 }
 
-// ============================================================================
-// Key & Window Utilities
-// ============================================================================
 int readKey() {
     char c;
     if (read(STDIN_FILENO, &c, 1) <= 0) return 0;
     
     if (c == '\033') {
         char seq[3];
-        struct timeval tv = {0, 50000}; // 50ms timeout for escape sequences
+        struct timeval tv = {0, 50000};
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
@@ -133,7 +118,6 @@ int getTerminalSize(int& rows, int& cols) {
     return 0;
 }
 
-// UTF-8 aware visual width calculation
 int getVisualWidth(const std::string& str) {
     int length = 0;
     for (size_t i = 0; i < str.length(); ) {
@@ -146,7 +130,7 @@ int getVisualWidth(const std::string& str) {
             length += 1;
         } else if (c < 0xF0) {
             i += 3;
-            length += 1; // box drawing characters like ─, │, ├, └ occupy 3 bytes
+            length += 1;
         } else {
             i += 4;
             length += 1;
@@ -155,7 +139,6 @@ int getVisualWidth(const std::string& str) {
     return length;
 }
 
-// UTF-8 aware padding and truncation helper
 std::string padOrTruncate(const std::string& str, int width) {
     std::string result = "";
     int currentWidth = 0;
@@ -168,7 +151,7 @@ std::string padOrTruncate(const std::string& str, int width) {
         else charBytes = 4;
         
         if (currentWidth + 1 > width) {
-            break; // Truncate
+            break;
         }
         
         result += str.substr(i, charBytes);
@@ -177,12 +160,11 @@ std::string padOrTruncate(const std::string& str, int width) {
     }
     
     if (currentWidth < width) {
-        result += std::string(width - currentWidth, ' '); // Pad
+        result += std::string(width - currentWidth, ' ');
     }
     return result;
 }
 
-// Find longest common prefix of a set of strings
 std::string findLongestCommonPrefix(const std::vector<std::string>& matches) {
     if (matches.empty()) return "";
     std::string prefix = matches[0];
@@ -195,13 +177,10 @@ std::string findLongestCommonPrefix(const std::vector<std::string>& matches) {
     return prefix;
 }
 
-// ============================================================================
-// TUI Layout Classes & Structs
-// ============================================================================
 struct TUIItem {
     std::string name;
     bool isDir;
-    FileNode* node; // nullptr if it represents ".."
+    FileNode* node;
 };
 
 struct TreeLine {
@@ -227,7 +206,6 @@ enum VisMode {
     BTREE_INDEX
 };
 
-// Generates directory tree lines starting from node
 void generateTreeLines(FileNode* node, const std::string& prefix, bool isLast, std::vector<TreeLine>& lines) {
     if (node == nullptr || lines.size() > 100) return;
     
@@ -244,7 +222,6 @@ void generateTreeLines(FileNode* node, const std::string& prefix, bool isLast, s
     }
 }
 
-// Generates LCRS binary tree lines showing FC/NS pointers explicitly as graphical edges
 void generateLCRSTreeLines(FileNode* node, const std::string& prefix, const std::string& pointerType, bool isLast, std::vector<TreeLine>& lines) {
     if (node == nullptr || lines.size() > 100) return;
     
@@ -261,7 +238,6 @@ void generateLCRSTreeLines(FileNode* node, const std::string& prefix, const std:
     
     lines.push_back({prefix, connector, pointerType, displayName, node->type == NodeType::DIRECTORY, text});
     
-    // Connectors like "├─FC─► " are exactly 7 visual chars wide
     std::string nextPrefix = prefix + (isLast ? "       " : "│      ");
     
     struct BinaryChild {
@@ -282,7 +258,6 @@ void generateLCRSTreeLines(FileNode* node, const std::string& prefix, const std:
     }
 }
 
-// Generates B-Tree index lines showing keys partitioned in B-Tree nodes and graphical pointer branches
 void generateBTreeLines(BTreeNode* node, const std::string& prefix, bool isLast, std::vector<TreeLine>& lines) {
     if (node == nullptr || lines.size() > 100) return;
     
@@ -304,11 +279,9 @@ void generateBTreeLines(BTreeNode* node, const std::string& prefix, bool isLast,
         text = prefix + connector + displayName;
     }
     
-    // Draw B-Tree nodes as directories (Cyan) for clean visuals
     lines.push_back({prefix, connector, "", displayName, true, text});
     
     if (!node->isLeaf) {
-        // Connector "├──► " is 5 visual chars wide
         std::string nextPrefix = prefix + (isLast ? "     " : "│    ");
         int numChildren = node->numKeys + 1;
         for (int i = 0; i < numChildren; ++i) {
@@ -320,11 +293,9 @@ void generateBTreeLines(BTreeNode* node, const std::string& prefix, bool isLast,
     }
 }
 
-// Helper to draw a tree line with color formatting
 void drawTreeLine(const TreeLine& tl, int width) {
     int remainingWidth = width;
     
-    // 1. Draw prefix
     if (!tl.prefix.empty() && remainingWidth > 0) {
         int prefW = getVisualWidth(tl.prefix);
         if (prefW <= remainingWidth) {
@@ -336,10 +307,8 @@ void drawTreeLine(const TreeLine& tl, int width) {
         }
     }
     
-    // 2. Draw connector & pointerType
     if (!tl.connector.empty() && remainingWidth > 0) {
         if (!tl.pointerType.empty()) {
-            // Draw connector body (e.g. "├─" or "└─")
             int connBodyW = getVisualWidth(tl.connector);
             if (connBodyW <= remainingWidth) {
                 std::cout << COLOR_BORDER << tl.connector;
@@ -349,7 +318,6 @@ void drawTreeLine(const TreeLine& tl, int width) {
                 remainingWidth = 0;
             }
             
-            // Draw pointerType (e.g. "FC" or "NS")
             if (remainingWidth > 0) {
                 int ptrW = getVisualWidth(tl.pointerType);
                 if (ptrW <= remainingWidth) {
@@ -369,7 +337,6 @@ void drawTreeLine(const TreeLine& tl, int width) {
                 }
             }
             
-            // Draw suffix "─► "
             if (remainingWidth > 0) {
                 std::string suffix = "─► ";
                 int sufW = getVisualWidth(suffix);
@@ -382,7 +349,6 @@ void drawTreeLine(const TreeLine& tl, int width) {
                 }
             }
         } else {
-            // Standard connector (e.g. "├── " or "├──► ")
             int connW = getVisualWidth(tl.connector);
             if (connW <= remainingWidth) {
                 std::cout << COLOR_BORDER << tl.connector;
@@ -394,7 +360,6 @@ void drawTreeLine(const TreeLine& tl, int width) {
         }
     }
     
-    // 3. Draw name
     if (remainingWidth > 0) {
         int nameW = getVisualWidth(tl.name);
         if (nameW <= remainingWidth) {
@@ -404,7 +369,6 @@ void drawTreeLine(const TreeLine& tl, int width) {
                 std::cout << COLOR_FILE << tl.name << COLOR_RESET;
             }
             remainingWidth -= nameW;
-            // Pad remaining spaces
             if (remainingWidth > 0) {
                 std::cout << std::string(remainingWidth, ' ');
             }
@@ -419,7 +383,6 @@ void drawTreeLine(const TreeLine& tl, int width) {
     }
 }
 
-// Helper to draw a right-pane item with optional cursor highlight and colors
 void drawRightLine(const std::string& text, bool isSelected, bool isDir, int width) {
     std::string indicator = isSelected ? "> " : "  ";
     std::string itemText = indicator + text;
@@ -440,18 +403,13 @@ void drawRightLine(const std::string& text, bool isSelected, bool isDir, int wid
     }
 }
 
-// ============================================================================
-// Main Entry
-// ============================================================================
 int main() {
-    // Setup signal handling
     TerminalRawMode rawMode;
     globalRawMode = &rawMode;
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
 
     FileSystem fs;
-    // Create some initial mock files & directories to make it look premium out of the box
     fs.mkdir("documents");
     fs.mkdir("photos");
     fs.mkdir("downloads");
@@ -460,7 +418,6 @@ int main() {
     fs.touch("photos/beach.png");
     fs.touch("downloads/installer.sh");
 
-    // TUI state variables
     TUIMode mode = BROWSE;
     VisMode visMode = DIR_TREE;
     int selectedIndex = 0;
@@ -473,18 +430,15 @@ int main() {
     std::vector<FileNode*> searchResults;
     std::vector<TUIItem> items;
 
-    // Command loop
     while (true) {
         int rows, cols;
         if (getTerminalSize(rows, cols) < 0) {
             rows = 24; cols = 80;
         }
 
-        // Prepare child items list
         items.clear();
         FileNode* currentDir = fs.getCurrentDir();
         
-        // Find root node to know if cd .. is possible
         FileNode* rootNode = currentDir;
         while (rootNode->parent != nullptr) {
             rootNode = rootNode->parent;
@@ -496,7 +450,6 @@ int main() {
                 items.push_back({path, match->type == NodeType::DIRECTORY, match});
             }
         } else {
-            // Normal browsing: include ".." if not in root
             if (currentDir != rootNode) {
                 items.push_back({"..", true, nullptr});
             }
@@ -506,7 +459,6 @@ int main() {
             }
         }
 
-        // Boundary safety check for selection
         int activeSize = items.size();
         if (activeSize == 0) {
             selectedIndex = 0;
@@ -515,7 +467,6 @@ int main() {
             if (selectedIndex < 0) selectedIndex = 0;
         }
 
-        // Dynamic Left Tree generation
         std::vector<TreeLine> treeLines;
         if (visMode == DIR_TREE) {
             std::string treeRootName = (currentDir->parent == nullptr) ? "/" : currentDir->name + "/";
@@ -529,14 +480,12 @@ int main() {
                 child = child->nextSibling;
             }
         } else if (visMode == LCRS_TREE) {
-            // Visualize the LCRS Binary Tree structure starting from root
             FileNode* rootNode = currentDir;
             while (rootNode->parent != nullptr) {
                 rootNode = rootNode->parent;
             }
             generateLCRSTreeLines(rootNode, "", "", true, treeLines);
         } else if (visMode == BTREE_INDEX) {
-            // Visualize the B-Tree index structure
             BTreeNode* btreeRoot = fs.getIndex().getRoot();
             if (btreeRoot == nullptr) {
                 treeLines.push_back({"", "", "", "(B-Tree is empty)", false, "(B-Tree is empty)"});
@@ -545,11 +494,9 @@ int main() {
             }
         }
 
-        // Layout bounds definition
         int contentHeight = rows - 5;
         if (contentHeight < 1) contentHeight = 1;
 
-        // Calculate dynamic left width based on the active visualization's longest line
         int maxTreeLineWidth = 0;
         for (const auto& tl : treeLines) {
             int w = getVisualWidth(tl.text);
@@ -558,14 +505,13 @@ int main() {
             }
         }
 
-        int leftWidth = maxTreeLineWidth + 3; // +3 padding
-        if (leftWidth < 20) leftWidth = 20;   // minimum width to make header labels readable
+        int leftWidth = maxTreeLineWidth + 3;
+        if (leftWidth < 20) leftWidth = 20;
         int maxAllowedLeft = cols / 2;
         if (maxAllowedLeft < 20) maxAllowedLeft = 20;
         if (leftWidth > maxAllowedLeft) leftWidth = maxAllowedLeft;
-        int rightWidth = cols - leftWidth - 2; // -1 for separator, -1 for margins
+        int rightWidth = cols - leftWidth - 2;
 
-        // Scroll alignment
         if (selectedIndex >= scrollOffset + contentHeight) {
             scrollOffset = selectedIndex - contentHeight + 1;
         }
@@ -573,27 +519,21 @@ int main() {
             scrollOffset = selectedIndex;
         }
 
-        // --------------------------------------------------------------------
-        // Render Frame
-        // --------------------------------------------------------------------
-        // Hide cursor and move to top-left (flicker-free redraw)
         std::cout << "\033[?25l\033[H";
 
         if (rows < 12 || cols < 40) {
-            std::cout << "\033[2J"; // Clear screen if too small
+            std::cout << "\033[2J";
             std::cout << "Terminal window is too small. Please resize!\r\n";
             std::cout << "Current: " << cols << "x" << rows << "\r\n";
             std::cout << "Minimum required: 40x12\r\n";
             std::cout << std::flush;
-            // Wait for size adjustment
             usleep(100000);
             continue;
         }
 
-        // Row 1: Header Bar
         std::string title = " 📁 C++ File System Explorer (TUI Mode) ";
         std::string pathText = " Location: " + fs.getCurrentPath() + " ";
-        std::string header = COLOR_HEADER + title; // Cyan reverse color
+        std::string header = COLOR_HEADER + title;
         int remaining = cols - title.length();
         if (remaining > (int)pathText.length()) {
             header += std::string(remaining - pathText.length(), ' ') + pathText;
@@ -603,7 +543,6 @@ int main() {
         header += COLOR_RESET + "\r\n";
         std::cout << header;
 
-        // Row 2: Header Border
         std::string leftLabel = "";
         if (visMode == DIR_TREE) {
             leftLabel = "── Tree View (Dir) ";
@@ -639,19 +578,15 @@ int main() {
 
         std::cout << COLOR_BORDER << leftBorder << "┬" << rightBorder << COLOR_RESET << "\r\n";
 
-        // Rows 3 to contentHeight + 2: Main Split Panes
         for (int r = 0; r < contentHeight; ++r) {
-            // Draw Left Tree column
             if (r < (int)treeLines.size()) {
                 drawTreeLine(treeLines[r], leftWidth);
             } else {
                 std::cout << std::string(leftWidth, ' ');
             }
 
-            // Draw Column Separator
             std::cout << COLOR_BORDER << "│" << COLOR_RESET;
 
-            // Draw Right List column
             int itemIndex = r + scrollOffset;
             if (itemIndex < activeSize) {
                 drawRightLine(items[itemIndex].name, itemIndex == selectedIndex, items[itemIndex].isDir, rightWidth);
@@ -661,14 +596,12 @@ int main() {
             std::cout << "\r\n";
         }
 
-        // Row rows - 2: Bottom Border
         std::string bottomBorder = "";
         for (int i = 0; i < leftWidth; ++i) bottomBorder += "─";
         bottomBorder += "┴";
         for (int i = 0; i < rightWidth; ++i) bottomBorder += "─";
         std::cout << COLOR_BORDER << bottomBorder << COLOR_RESET << "\r\n";
 
-        // Row rows - 1: Info / Status Line
         std::string promptLine = "";
         if (mode == INPUT_DIR) {
             promptLine = " 📂 Create Directory: " + inputBuffer + "█";
@@ -697,7 +630,6 @@ int main() {
         } else if (mode == SEARCH_RESULTS) {
             promptLine = " 🔎 Search Results for \"" + searchQuery + "\" | Matches: " + std::to_string(items.size()) + " | [Enter] Jump to location";
         } else {
-            // Normal Browse mode
             if (!statusMessage.empty()) {
                 promptLine = " " + statusMessage;
             } else if (items.empty()) {
@@ -713,7 +645,6 @@ int main() {
         }
         std::cout << padOrTruncate(promptLine, cols) << "\r\n";
 
-        // Row rows: Action Legend Bar
         std::string legend = "";
         if (mode == SEARCH_RESULTS) {
             legend = " [↑/↓] Navigate Results  [Enter] Go to Folder  [Esc] Back to Browse";
@@ -724,14 +655,10 @@ int main() {
         }
         std::cout << COLOR_LEGEND << padOrTruncate(legend, cols) << COLOR_RESET << std::flush;
 
-        // Reset transient status messages
         if (mode == BROWSE) {
             statusMessage = "";
         }
 
-        // --------------------------------------------------------------------
-        // Handle User Input
-        // --------------------------------------------------------------------
         int key = readKey();
         if (key == 0) continue;
 
@@ -820,10 +747,8 @@ int main() {
                         FileNode* targetDir = (match->type == NodeType::DIRECTORY) ? match : match->parent;
                         if (targetDir != nullptr) {
                             fs.cd(fs.getAbsolutePath(targetDir));
-                            // Refresh browser to browsing mode
                             mode = BROWSE;
                             
-                            // Rebuild browse items list to select the target node
                             items.clear();
                             currentDir = fs.getCurrentDir();
                             if (currentDir != rootNode) {
@@ -834,7 +759,6 @@ int main() {
                                 items.push_back({childNode->name, childNode->type == NodeType::DIRECTORY, childNode});
                             }
                             
-                            // Select matching node in lists
                             selectedIndex = 0;
                             for (size_t i = 0; i < items.size(); ++i) {
                                 if (items[i].node == match) {
@@ -848,18 +772,15 @@ int main() {
                 }
             }
         } else {
-            // Normal Browse mode keyboard input
             if (key == KEY_UP) {
                 selectedIndex--;
             } else if (key == KEY_DOWN) {
                 selectedIndex++;
             } else if (key == KEY_LEFT || key == KEY_BACKSPACE) {
-                // Navigate back up to parent directory
                 if (currentDir != rootNode) {
                     std::string currentDirName = currentDir->name;
                     fs.cd("..");
                     
-                    // Rebuild items to locate the index of the directory we just left
                     items.clear();
                     currentDir = fs.getCurrentDir();
                     if (currentDir != rootNode) {
@@ -870,7 +791,6 @@ int main() {
                         items.push_back({childNode->name, childNode->type == NodeType::DIRECTORY, childNode});
                     }
                     
-                    // Position selected cursor over the directory we came from
                     selectedIndex = 0;
                     for (size_t i = 0; i < items.size(); ++i) {
                         if (items[i].node != nullptr && items[i].node->name == currentDirName) {
@@ -881,14 +801,12 @@ int main() {
                     scrollOffset = 0;
                 }
             } else if (key == KEY_RIGHT || key == KEY_ENTER) {
-                // Open file or change folder directory
                 if (!items.empty() && selectedIndex < (int)items.size()) {
                     TUIItem sel = items[selectedIndex];
                     if (sel.node == nullptr && sel.name == "..") {
                         std::string currentDirName = currentDir->name;
                         fs.cd("..");
                         
-                        // Find index of previous folder
                         items.clear();
                         currentDir = fs.getCurrentDir();
                         if (currentDir != rootNode) {
@@ -935,13 +853,11 @@ int main() {
                     visMode = DIR_TREE;
                 }
             } else if (key == 'q' || key == KEY_ESC) {
-                // Exit TUI
                 break;
             }
         }
     }
 
-    // Restore terminal and clear screen on quit
     rawMode.disable();
     std::cout << "\033[2J\033[H" << "Memory cleaned up. Goodbye!\n";
     return 0;
